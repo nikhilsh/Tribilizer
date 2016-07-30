@@ -25,6 +25,8 @@
 #include "vec_helpers.h"
 #include "tri_obj_io.h"
 #include "cork.h"
+#include "CompFab.h"
+#include "Mesh.h"
 
 typedef float Real;
 
@@ -37,6 +39,9 @@ typedef Vec<Real, 4> V4;
 typedef Mat<Real, 2> M2;
 typedef Mat<Real, 3> M3;
 typedef Mat<Real, 4> M4;
+
+#define EPSILON 1e-9
+
 
 // This is the camera
 Camera camera;
@@ -71,6 +76,14 @@ int mouseFunction = MouseFunction::NONE;
 
 int mouseX = 0;
 int mouseY = 0;
+
+int cutPoint1 = 0;
+int cutPoint2 = 0;
+
+typedef std::vector<CompFab::Triangle> TriangleList;
+
+TriangleList triangleList;
+CompFab::VoxelGrid voxelGrid;
 
 //-------------------------------------------------------------------
 
@@ -340,7 +353,66 @@ void timerFunc(int t)
 	glutTimerFunc(t, &timerFunc, t);
 }
 
-void loadModel()
+inline bool rayTriangleIntersection(const CompFab::Ray &ray, const CompFab::Triangle &triangle)
+{
+    /********* ASSIGNMENT *********/
+    /* Ray-Triangle intersection test: Return 1 if ray intersects triangle,
+     * 0 otherwise */
+    V3 e1, e2;
+    V3 P, Q, T;
+    float t;
+    
+    e1 = triangle.v1 - triangle.v0;
+    e2 = triangle.v2 - triangle.v0;
+    
+    P = ray.direction.cross(e2);
+    float determinant = e1.dot(P);
+    
+    if (determinant > -EPSILON && determinant < EPSILON) {
+        return 0;
+    }
+    
+    float invDet = 1.0f / determinant;
+    
+    T = ray.origin - triangle.v0;
+    float u = T.dot(P) * invDet;
+    if (u < 0.0f || u > 1.0f) {
+        return 0;
+    }
+    
+    Q = T.cross(e1);
+    
+    float v = ray.direction.dot(Q) * invDet;
+    if (v < 0.0f || u + v > 1.0f) {
+        return 0;
+    }
+    
+    t = e2.dot(Q) * invDet;
+    
+    if (t > EPSILON) {
+        return 1;
+    }
+    return 0;
+}
+
+inline unsigned numSurfaceIntersections(const V3 &voxelPos, const V3 &dir)
+{
+    unsigned numHits = 0;
+    
+    /********* ASSIGNMENT *********/
+    /* Check and return the number of times a ray cast in direction dir,
+     * from voxel center voxelPos intersects the surface */
+    CompFab::Ray r;
+    for (int i = 0; i < triangleList.size(); i++) {
+        r = CompFab::Ray(voxelPos, dir);
+        if (rayTriangleIntersection(r, triangleList[i])) {
+            numHits += 1;
+        }
+    }
+    return numHits;
+}
+
+void loadModel(char *filename)
 {
 	TriObjIO::loadTriObjFile("unstable.obj", verts, faces);
 	
@@ -370,6 +442,135 @@ void loadModel()
 	bvh.build(); // Build
 	triBVH.build();
     
+}
+
+void inputMeshToCorkMesh ();
+void calculateSplittingOfMesh() {
+    
+    const unsigned dim = 32; //dimension of voxel grid (e.g. 32x32x32)
+    int mass[dim] = {};
+    int voxcount[dim] = {};
+    float totalcount = 0;
+    float massheight = 0;
+    float totalmass = 0;
+    int com[dim] = {};
+    int average = 0;
+    int cut1 = 0;
+    int cut2 = 0;
+    int pointer = 0;
+    
+    CompFab::Mesh tempMesh("unstable.obj", true);
+    
+    triangleList.resize(tempMesh.t.size());
+    
+    //copy triangles to global list
+    for (unsigned i = 0; i < tempMesh.t.size(); ++i) {
+        triangleList[i].v0 = tempMesh.v[tempMesh.t[i][0]];
+        triangleList[i].v1 = tempMesh.v[tempMesh.t[i][1]];
+        triangleList[i].v2 = tempMesh.v[tempMesh.t[i][2]];
+    }
+    
+    //Create Voxel Grid
+    V3 bbMax, bbMin;
+    BBox(tempMesh, bbMin, bbMax);
+    
+    //Build Voxel Grid
+    Real bbX = bbMax[0] - bbMin[0];
+    Real bbY = bbMax[1] - bbMin[1];
+    Real bbZ = bbMax[2] - bbMin[2];
+    Real spacing;
+    
+    if (bbX > bbY && bbX > bbZ) {
+        spacing = bbX / (Real)(dim - 2);
+    } else if (bbY > bbX && bbY > bbZ) {
+        spacing = bbY / (Real)(dim - 2);
+    } else {
+        spacing = bbZ / (Real)(dim - 2);
+    }
+    
+    V3 hspacing(0.5 * spacing);
+
+    voxelGrid = CompFab::VoxelGrid(bbMin - hspacing, dim, dim, dim, spacing);
+    
+    
+    
+    V3 voxelPos;
+    V3 direction(1, 0, 0);
+    /********* ASSIGNMENT *********/
+    /* Iterate over all voxels in voxelGrid and test whether they are inside our outside of the
+     * surface defined by the triangles in triangleList */
+    for (int i = 0; i < dim; i++) {
+        for (int k = 0; k < dim; k++) {
+            for (int j = 0; j < dim; j++) {
+                //find i-voxel
+                V3 voxeli = V3(i * voxelGrid.spacing, 0, 0);
+                //find j-voxel
+                V3 voxelj = V3(0, j * voxelGrid.spacing, 0);
+                //find k-voxel
+                V3 voxelk = V3(0, 0, k * voxelGrid.spacing);
+                //find the new position from iteration, start from origin then add each dimension
+                voxelPos = voxelGrid.lowerLeft + voxeli + voxelj + voxelk;
+                voxelGrid.isInside(i, j, k) = numSurfaceIntersections(voxelPos, direction) % 2;
+                if (voxelGrid.isInside(i, j, k)) { mass[j]++; voxcount[j]++;}
+            }
+        }
+    }
+    //compilation of all COM after each layer is change to 0.2 mass
+    
+    for (int p = dim-1; p > 0-1; p--) {
+        mass[p] = 0.2*mass[p];
+        for (int q = 0; q < dim; q++) {
+            totalmass = totalmass + mass[q];
+            massheight = massheight + (mass[q] * q);
+        }
+        com[p]= ceil(massheight / totalmass);
+        //printf("COM%d is %d\n", p, com[p]);
+        totalmass = 0;
+        massheight = 0;
+    }
+    int cut = dim - 1;
+    for (int p = dim - 1; p > 0; p--) {
+        if (com[cut] >= com[p]) {
+            cut = p;
+        }
+    }
+    
+    for (int i = 0; i < dim; i++) {
+        totalcount = totalcount + voxcount[i];
+        printf("Layer%d voxcount=%d\n", i, voxcount[i]);
+    }
+    
+    // sorts in ascending order
+    std::sort(std::begin(voxcount), std::end(voxcount));
+    
+    //percentile calculation
+    pointer = 0.25 * dim;
+    if (floor(pointer) == pointer)
+        average = (voxcount[pointer] + voxcount[pointer + 1]) * 0.5;
+    else
+        average = voxcount[(int) ceil(pointer)];
+    
+    //printf("cut@ %d, threshold=%d\n", cut,average);
+    
+    
+    for (int q = cut; q < dim; q++) {
+        cut1 = q;
+        if (voxcount[q] >= average) {
+            break;
+        }
+    }
+    for (int r = cut; r > 0; r--) {
+        cut2 = r;
+        if (voxcount[r] >= average) {
+            break;
+        }
+    }
+    printf("lowestCOM cut@Layer%d with count%d. Threshold=%d therefore cut1@Layer%d with count%d cut2@Layer%d with count%d\n", cut,voxcount[cut],average,cut1,voxcount[cut1],cut2,voxcount[cut2]);
+    
+    cutPoint1 = cut1;
+    cutPoint2 = cut2;
+    
+    inputMeshToCorkMesh();
 }
 
 void inputMeshToCorkMesh () {
@@ -405,34 +606,39 @@ void inputMeshToCorkMesh () {
     
     std::vector<TriFace> cubeFaces(12);
     std::vector<V3> cubeVerts(8);
-    
+
+    if (cutPoint1 != cutPoint2) {
 #define DEF_CUBE_VERT(I, X,Y,Z) \
 cubeMesh.vertices[I*3+0] = X; \
 cubeMesh.vertices[I*3+1] = Y; \
 cubeMesh.vertices[I*3+2] = Z;
-    
-    const Real &xMin = bounds.lower.x;
-    const Real &yMin = bounds.lower.y;
-    const Real &zMin = bounds.lower.z;
-    
-    const Real &xMax = bounds.upper.x;
-    const Real &yMax = bounds.upper.y;
-    const Real &zMax = bounds.upper.z;
-    
-    const Real yCut = yMin + (yMax - yMin) * 1.0 / 3.0;
-    
-    DEF_CUBE_VERT(0, xMin,yCut,zMin);
-    DEF_CUBE_VERT(1, xMax,yCut,zMin);
-    DEF_CUBE_VERT(2, xMax,yCut,zMax);
-    DEF_CUBE_VERT(3, xMin,yCut,zMax);
-    DEF_CUBE_VERT(4, xMin,yMin,zMin);
-    DEF_CUBE_VERT(5, xMax,yMin,zMin);
-    DEF_CUBE_VERT(6, xMax,yMin,zMax);
-    DEF_CUBE_VERT(7, xMin,yMin,zMax);
-    
+        
+        const Real &xMin = bounds.lower.x;
+        const Real &yMin = bounds.lower.y;
+        const Real &zMin = bounds.lower.z;
+        
+        const Real &xMax = bounds.upper.x;
+        const Real &yMax = bounds.upper.y;
+        const Real &zMax = bounds.upper.z;
+        
+        //lowest point
+        //    const Real yCut = yMin + (yMax - yMin) * 1.0 / 3.0;
+        
+        const Real yCut = yMin + (yMax - yMin) * (cutPoint1/32.0);
+        printf("cut point 1: %f", yCut);
+        
+        DEF_CUBE_VERT(0, xMin,yCut,zMin);
+        DEF_CUBE_VERT(1, xMax,yCut,zMin);
+        DEF_CUBE_VERT(2, xMax,yCut,zMax);
+        DEF_CUBE_VERT(3, xMin,yCut,zMax);
+        DEF_CUBE_VERT(4, xMin,yMin,zMin);
+        DEF_CUBE_VERT(5, xMax,yMin,zMin);
+        DEF_CUBE_VERT(6, xMax,yMin,zMax);
+        DEF_CUBE_VERT(7, xMin,yMin,zMax);
+        
 #undef DEF_CUBE_VERT
-    
-    // clockwise
+        
+        // clockwise
 #define DEF_CUBE_FACE(I, A,B,C,D) \
 cubeMesh.triangles[I*6+0] = A; \
 cubeMesh.triangles[I*6+1] = D; \
@@ -440,45 +646,48 @@ cubeMesh.triangles[I*6+2] = B; \
 cubeMesh.triangles[I*6+3] = B; \
 cubeMesh.triangles[I*6+4] = D; \
 cubeMesh.triangles[I*6+5] = C;
-    
-    DEF_CUBE_FACE(0, 0,1,2,3);
-    DEF_CUBE_FACE(1, 1,5,6,2);
-    DEF_CUBE_FACE(2, 7,6,5,4);
-    DEF_CUBE_FACE(3, 3,7,4,0);
-    DEF_CUBE_FACE(4, 3,2,6,7);
-    DEF_CUBE_FACE(5, 0,4,5,1);
-    
+        
+        DEF_CUBE_FACE(0, 0,1,2,3);
+        DEF_CUBE_FACE(1, 1,5,6,2);
+        DEF_CUBE_FACE(2, 7,6,5,4);
+        DEF_CUBE_FACE(3, 3,7,4,0);
+        DEF_CUBE_FACE(4, 3,2,6,7);
+        DEF_CUBE_FACE(5, 0,4,5,1);
+        
 #undef DEF_CUBE_FACE
-    
-    CorkTriMesh cubeMesh2;
-    cubeMesh2.n_vertices = 8;
-    cubeMesh2.n_triangles = 12;
-    cubeMesh2.vertices = new float[3*8];
-    cubeMesh2.triangles = new uint[3*12];
-    
-    std::vector<TriFace> cubeFaces2(12);
-    std::vector<V3> cubeVerts2(8);
-    
+        
+        CorkTriMesh cubeMesh2;
+        cubeMesh2.n_vertices = 8;
+        cubeMesh2.n_triangles = 12;
+        cubeMesh2.vertices = new float[3*8];
+        cubeMesh2.triangles = new uint[3*12];
+        
+        std::vector<TriFace> cubeFaces2(12);
+        std::vector<V3> cubeVerts2(8);
+        
 #define DEF_CUBE_VERT(I, X,Y,Z) \
 cubeMesh2.vertices[I*3+0] = X; \
 cubeMesh2.vertices[I*3+1] = Y; \
 cubeMesh2.vertices[I*3+2] = Z;
-
-    
-    const Real yCut2 = yMax - (yMax - yMin) * 1.0 / 3.0;
-    
-    DEF_CUBE_VERT(0, xMin,yMax,zMin);
-    DEF_CUBE_VERT(1, xMax,yMax,zMin);
-    DEF_CUBE_VERT(2, xMax,yMax,zMax);
-    DEF_CUBE_VERT(3, xMin,yMax,zMax);
-    DEF_CUBE_VERT(4, xMin,yCut2,zMin);
-    DEF_CUBE_VERT(5, xMax,yCut2,zMin);
-    DEF_CUBE_VERT(6, xMax,yCut2,zMax);
-    DEF_CUBE_VERT(7, xMin,yCut2,zMax);
-    
+        
+        //higher point
+        //    const Real yCut2 = yMax - (yMax - yMin) * 1.0 / 3.0;
+        const Real yCut2 = yMax - (yMax - yMin) * cutPoint2/32.0;
+        printf("cut point 2: %f", yCut2);
+        
+        
+        DEF_CUBE_VERT(0, xMin,yMax,zMin);
+        DEF_CUBE_VERT(1, xMax,yMax,zMin);
+        DEF_CUBE_VERT(2, xMax,yMax,zMax);
+        DEF_CUBE_VERT(3, xMin,yMax,zMax);
+        DEF_CUBE_VERT(4, xMin,yCut2,zMin);
+        DEF_CUBE_VERT(5, xMax,yCut2,zMin);
+        DEF_CUBE_VERT(6, xMax,yCut2,zMax);
+        DEF_CUBE_VERT(7, xMin,yCut2,zMax);
+        
 #undef DEF_CUBE_VERT
-    
-    // clockwise
+        
+        // clockwise
 #define DEF_CUBE_FACE(I, A,B,C,D) \
 cubeMesh2.triangles[I*6+0] = A; \
 cubeMesh2.triangles[I*6+1] = D; \
@@ -486,102 +695,208 @@ cubeMesh2.triangles[I*6+2] = B; \
 cubeMesh2.triangles[I*6+3] = B; \
 cubeMesh2.triangles[I*6+4] = D; \
 cubeMesh2.triangles[I*6+5] = C;
-    
-    DEF_CUBE_FACE(0, 0,1,2,3);
-    DEF_CUBE_FACE(1, 1,5,6,2);
-    DEF_CUBE_FACE(2, 7,6,5,4);
-    DEF_CUBE_FACE(3, 3,7,4,0);
-    DEF_CUBE_FACE(4, 3,2,6,7);
-    DEF_CUBE_FACE(5, 0,4,5,1);
-    
+        
+        DEF_CUBE_FACE(0, 0,1,2,3);
+        DEF_CUBE_FACE(1, 1,5,6,2);
+        DEF_CUBE_FACE(2, 7,6,5,4);
+        DEF_CUBE_FACE(3, 3,7,4,0);
+        DEF_CUBE_FACE(4, 3,2,6,7);
+        DEF_CUBE_FACE(5, 0,4,5,1);
+        
 #undef DEF_CUBE_FACE
-
-//    TriObjIO::writeTriObjFile("outC.obj", cubeVerts, cubeFaces);
-//    TriObjIO::writeTriObjFile("outD.obj", cubeVerts2, cubeFaces2);
-
-    CorkTriMesh outputMesh;
-    CorkTriMesh outputMesh2;
-    
-    CorkTriMesh outputMesh3;
-    CorkTriMesh outputMesh4;
-
-    computeDifference(overallMesh, cubeMesh, &outputMesh);
-    computeDifference(outputMesh, cubeMesh2, &outputMesh2);
-
-    computeIntersection(cubeMesh, overallMesh, &outputMesh3);
-    computeIntersection(cubeMesh2, overallMesh, &outputMesh4);
-    
-    delete [] overallMesh.triangles;
-    delete [] overallMesh.vertices;
-    
-    delete [] cubeMesh.triangles;
-    delete [] cubeMesh.vertices;
-    
-    delete [] cubeMesh2.triangles;
-    delete [] cubeMesh2.vertices;
-    
-    std::vector<TriFace> outFaces(outputMesh2.n_triangles);
-    std::vector<V3> outVerts(outputMesh2.n_vertices);
-    
-    for(uint i=0; i < outputMesh2.n_triangles; i++) {
-        outFaces[i][0] = outputMesh2.triangles[3*i+0];
-        outFaces[i][1] = outputMesh2.triangles[3*i+1];
-        outFaces[i][2] = outputMesh2.triangles[3*i+2];
+        
+        //    TriObjIO::writeTriObjFile("outC.obj", cubeVerts, cubeFaces);
+        //    TriObjIO::writeTriObjFile("outD.obj", cubeVerts2, cubeFaces2);
+        
+        CorkTriMesh outputMesh;
+        CorkTriMesh outputMesh2;
+        
+        CorkTriMesh outputMesh3;
+        CorkTriMesh outputMesh4;
+        
+        computeDifference(overallMesh, cubeMesh, &outputMesh);
+        computeDifference(outputMesh, cubeMesh2, &outputMesh2);
+        
+        computeIntersection(cubeMesh, overallMesh, &outputMesh3);
+        computeIntersection(cubeMesh2, overallMesh, &outputMesh4);
+        
+        delete [] overallMesh.triangles;
+        delete [] overallMesh.vertices;
+        
+        delete [] cubeMesh.triangles;
+        delete [] cubeMesh.vertices;
+        
+        delete [] cubeMesh2.triangles;
+        delete [] cubeMesh2.vertices;
+        
+        std::vector<TriFace> outFaces(outputMesh2.n_triangles);
+        std::vector<V3> outVerts(outputMesh2.n_vertices);
+        
+        for(uint i=0; i < outputMesh2.n_triangles; i++) {
+            outFaces[i][0] = outputMesh2.triangles[3*i+0];
+            outFaces[i][1] = outputMesh2.triangles[3*i+1];
+            outFaces[i][2] = outputMesh2.triangles[3*i+2];
+        }
+        
+        for(uint i=0; i<outputMesh2.n_vertices; i++) {
+            outVerts[i][0] = outputMesh2.vertices[3*i+0];
+            outVerts[i][1] = outputMesh2.vertices[3*i+1];
+            outVerts[i][2] = outputMesh2.vertices[3*i+2];
+        }
+        
+        freeCorkTriMesh(&outputMesh2);
+        
+        TriObjIO::writeTriObjFile("out1.obj", outVerts, outFaces);
+        
+        std::vector<TriFace> outFaces2(outputMesh3.n_triangles);
+        std::vector<V3> outVerts2(outputMesh3.n_vertices);
+        
+        for(uint i=0; i < outputMesh3.n_triangles; i++) {
+            outFaces2[i][0] = outputMesh3.triangles[3*i+0];
+            outFaces2[i][1] = outputMesh3.triangles[3*i+1];
+            outFaces2[i][2] = outputMesh3.triangles[3*i+2];
+        }
+        
+        for(uint i=0; i<outputMesh3.n_vertices; i++) {
+            outVerts2[i][0] = outputMesh3.vertices[3*i+0];
+            outVerts2[i][1] = outputMesh3.vertices[3*i+1];
+            outVerts2[i][2] = outputMesh3.vertices[3*i+2];
+        }
+        
+        freeCorkTriMesh(&outputMesh3);
+        
+        TriObjIO::writeTriObjFile("out2.obj", outVerts2, outFaces2);
+        
+        std::vector<TriFace> outFaces3(outputMesh4.n_triangles);
+        std::vector<V3> outVerts3(outputMesh4.n_vertices);
+        
+        for(uint i=0; i < outputMesh4.n_triangles; i++) {
+            outFaces3[i][0] = outputMesh4.triangles[3*i+0];
+            outFaces3[i][1] = outputMesh4.triangles[3*i+1];
+            outFaces3[i][2] = outputMesh4.triangles[3*i+2];
+        }
+        
+        for(uint i=0; i<outputMesh4.n_vertices; i++) {
+            outVerts3[i][0] = outputMesh4.vertices[3*i+0];
+            outVerts3[i][1] = outputMesh4.vertices[3*i+1];
+            outVerts3[i][2] = outputMesh4.vertices[3*i+2];
+        }
+        
+        freeCorkTriMesh(&outputMesh4);
+        
+        TriObjIO::writeTriObjFile("out3.obj", outVerts3, outFaces3);
+        
+    }
+    else {
+#define DEF_CUBE_VERT(I, X,Y,Z) \
+cubeMesh.vertices[I*3+0] = X; \
+cubeMesh.vertices[I*3+1] = Y; \
+cubeMesh.vertices[I*3+2] = Z;
+        
+        const Real &xMin = bounds.lower.x;
+        const Real &yMin = bounds.lower.y;
+        const Real &zMin = bounds.lower.z;
+        
+        const Real &xMax = bounds.upper.x;
+        const Real &yMax = bounds.upper.y;
+        const Real &zMax = bounds.upper.z;
+        
+        //lowest point
+        //    const Real yCut = yMin + (yMax - yMin) * 1.0 / 3.0;
+        
+        const Real yCut = yMin + (yMax - yMin) * (cutPoint1/32.0);
+        printf("cut point 1: %f", yCut);
+        
+        DEF_CUBE_VERT(0, xMin,yCut,zMin);
+        DEF_CUBE_VERT(1, xMax,yCut,zMin);
+        DEF_CUBE_VERT(2, xMax,yCut,zMax);
+        DEF_CUBE_VERT(3, xMin,yCut,zMax);
+        DEF_CUBE_VERT(4, xMin,yMin,zMin);
+        DEF_CUBE_VERT(5, xMax,yMin,zMin);
+        DEF_CUBE_VERT(6, xMax,yMin,zMax);
+        DEF_CUBE_VERT(7, xMin,yMin,zMax);
+        
+#undef DEF_CUBE_VERT
+        
+        // clockwise
+#define DEF_CUBE_FACE(I, A,B,C,D) \
+cubeMesh.triangles[I*6+0] = A; \
+cubeMesh.triangles[I*6+1] = D; \
+cubeMesh.triangles[I*6+2] = B; \
+cubeMesh.triangles[I*6+3] = B; \
+cubeMesh.triangles[I*6+4] = D; \
+cubeMesh.triangles[I*6+5] = C;
+        
+        DEF_CUBE_FACE(0, 0,1,2,3);
+        DEF_CUBE_FACE(1, 1,5,6,2);
+        DEF_CUBE_FACE(2, 7,6,5,4);
+        DEF_CUBE_FACE(3, 3,7,4,0);
+        DEF_CUBE_FACE(4, 3,2,6,7);
+        DEF_CUBE_FACE(5, 0,4,5,1);
+        
+#undef DEF_CUBE_FACE
+        
+        //    TriObjIO::writeTriObjFile("outC.obj", cubeVerts, cubeFaces);
+        //    TriObjIO::writeTriObjFile("outD.obj", cubeVerts2, cubeFaces2);
+        
+        CorkTriMesh outputMesh;
+        CorkTriMesh outputMesh2;
+        
+        
+        computeIntersection(overallMesh, cubeMesh, &outputMesh);
+        computeDifference(overallMesh, cubeMesh, &outputMesh2);
+        
+//        delete [] overallMesh.triangles;
+//        delete [] overallMesh.vertices;
+        
+        delete [] cubeMesh.triangles;
+        delete [] cubeMesh.vertices;
+        
+        
+        std::vector<TriFace> outFaces(outputMesh.n_triangles);
+        std::vector<V3> outVerts(outputMesh.n_vertices);
+        
+        for(uint i=0; i < outputMesh.n_triangles; i++) {
+            outFaces[i][0] = outputMesh.triangles[3*i+0];
+            outFaces[i][1] = outputMesh.triangles[3*i+1];
+            outFaces[i][2] = outputMesh.triangles[3*i+2];
+        }
+        
+        for(uint i=0; i<outputMesh.n_vertices; i++) {
+            outVerts[i][0] = outputMesh.vertices[3*i+0];
+            outVerts[i][1] = outputMesh.vertices[3*i+1];
+            outVerts[i][2] = outputMesh.vertices[3*i+2];
+        }
+        
+        
+        TriObjIO::writeTriObjFile("out1.obj", outVerts, outFaces);
+        
+        std::vector<TriFace> outFaces2(outputMesh2.n_triangles);
+        std::vector<V3> outVerts2(outputMesh2.n_vertices);
+        
+        for(uint i=0; i < outputMesh2.n_triangles; i++) {
+            outFaces2[i][0] = outputMesh2.triangles[3*i+0];
+            outFaces2[i][1] = outputMesh2.triangles[3*i+1];
+            outFaces2[i][2] = outputMesh2.triangles[3*i+2];
+        }
+        
+        for(uint i=0; i<outputMesh2.n_vertices; i++) {
+            outVerts2[i][0] = outputMesh2.vertices[3*i+0];
+            outVerts2[i][1] = outputMesh2.vertices[3*i+1];
+            outVerts2[i][2] = outputMesh2.vertices[3*i+2];
+        }
+        
+        freeCorkTriMesh(&outputMesh2);
+        
+        TriObjIO::writeTriObjFile("out2.obj", outVerts2, outFaces2);
+        
     }
     
-    for(uint i=0; i<outputMesh2.n_vertices; i++) {
-        outVerts[i][0] = outputMesh2.vertices[3*i+0];
-        outVerts[i][1] = outputMesh2.vertices[3*i+1];
-        outVerts[i][2] = outputMesh2.vertices[3*i+2];
-    }
-    
-    freeCorkTriMesh(&outputMesh2);
-    
-    TriObjIO::writeTriObjFile("out1.obj", outVerts, outFaces);
-    
-    std::vector<TriFace> outFaces2(outputMesh3.n_triangles);
-    std::vector<V3> outVerts2(outputMesh3.n_vertices);
-    
-    for(uint i=0; i < outputMesh3.n_triangles; i++) {
-        outFaces2[i][0] = outputMesh3.triangles[3*i+0];
-        outFaces2[i][1] = outputMesh3.triangles[3*i+1];
-        outFaces2[i][2] = outputMesh3.triangles[3*i+2];
-    }
-    
-    for(uint i=0; i<outputMesh3.n_vertices; i++) {
-        outVerts2[i][0] = outputMesh3.vertices[3*i+0];
-        outVerts2[i][1] = outputMesh3.vertices[3*i+1];
-        outVerts2[i][2] = outputMesh3.vertices[3*i+2];
-    }
-    
-    freeCorkTriMesh(&outputMesh3);
-    
-    TriObjIO::writeTriObjFile("out2.obj", outVerts2, outFaces2);
-    
-    std::vector<TriFace> outFaces3(outputMesh4.n_triangles);
-    std::vector<V3> outVerts3(outputMesh4.n_vertices);
-    
-    for(uint i=0; i < outputMesh4.n_triangles; i++) {
-        outFaces3[i][0] = outputMesh4.triangles[3*i+0];
-        outFaces3[i][1] = outputMesh4.triangles[3*i+1];
-        outFaces3[i][2] = outputMesh4.triangles[3*i+2];
-    }
-    
-    for(uint i=0; i<outputMesh4.n_vertices; i++) {
-        outVerts3[i][0] = outputMesh4.vertices[3*i+0];
-        outVerts3[i][1] = outputMesh4.vertices[3*i+1];
-        outVerts3[i][2] = outputMesh4.vertices[3*i+2];
-    }
-    
-    freeCorkTriMesh(&outputMesh4);
-    
-    TriObjIO::writeTriObjFile("out3.obj", outVerts3, outFaces3);
-    
-//    std::vector<V3> vertsLink;
-//    std::vector<V3> normsLink;
-//    std::vector<TriFace> facesLink;
-//    
-//    TriObjIO::loadTriObjFile("linkset.obj", vertsLink, facesLink);
+    //    std::vector<V3> vertsLink;
+    //    std::vector<V3> normsLink;
+    //    std::vector<TriFace> facesLink;
+    //    
+    //    TriObjIO::loadTriObjFile("linkset.obj", vertsLink, facesLink);
 //    
 //    M4 transform = (scale(M4::Identity(), V3(1)) *
 //                    getCenterIntoUnitVolumeTransform(vertsLink));
@@ -662,8 +977,8 @@ int main( int argc, char* argv[] )
 //	glutCreateWindow("BVH Test");
 	
 	// Load the model
-	loadModel();
-    inputMeshToCorkMesh();
+	loadModel(argv[1]);
+    calculateSplittingOfMesh();
 
 	// Initialize OpenGL parameters.
 //	initRendering();

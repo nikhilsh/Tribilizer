@@ -34,6 +34,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		3121DF001D4CFEEF00F9C2FC /* CompFab.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = CompFab.h; sourceTree = "<group>"; };
+		3121DF011D4CFEEF00F9C2FC /* Mesh.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = Mesh.h; sourceTree = "<group>"; };
 		319D73B61D3EC080000FB672 /* linkset.obj */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = linkset.obj; sourceTree = "<group>"; };
 		31C97D231D3E40AC0055B471 /* cork.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = cork.h; sourceTree = "<group>"; };
 		31C97D281D3E78AE0055B471 /* libcork.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libcork.a; sourceTree = "<group>"; };
@@ -107,6 +109,8 @@
 				CE2BC1D21D21158D000D25FC /* tri_obj_io.h */,
 				CE2BC1D31D21158D000D25FC /* vec.h */,
 				31C97D231D3E40AC0055B471 /* cork.h */,
+				3121DF001D4CFEEF00F9C2FC /* CompFab.h */,
+				3121DF011D4CFEEF00F9C2FC /* Mesh.h */,
 				CE2BC1D81D212E0C000D25FC /* bunny.obj */,
 				31C97D301D3EA8AB0055B471 /* unstable.obj */,
 				319D73B61D3EC080000FB672 /* linkset.obj */,
