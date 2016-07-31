@@ -414,7 +414,7 @@ inline unsigned numSurfaceIntersections(const V3 &voxelPos, const V3 &dir)
 
 void loadModel(char *filename)
 {
-	TriObjIO::loadTriObjFile("unstable.obj", verts, faces);
+	TriObjIO::loadTriObjFile("bunny.obj", verts, faces);
 	
 	M4 transform = (scale(M4::Identity(), V3(1)) *
 					getCenterIntoUnitVolumeTransform(verts));
@@ -447,6 +447,7 @@ void loadModel(char *filename)
 void inputMeshToCorkMesh ();
 void calculateSplittingOfMesh() {
     
+    //need to change dividing by also
     const unsigned dim = 32; //dimension of voxel grid (e.g. 32x32x32)
     int mass[dim] = {};
     int voxcount[dim] = {};
@@ -459,7 +460,7 @@ void calculateSplittingOfMesh() {
     int cut2 = 0;
     int pointer = 0;
     
-    CompFab::Mesh tempMesh("unstable.obj", true);
+    CompFab::Mesh tempMesh("bunny.obj", true);
     
     triangleList.resize(tempMesh.t.size());
     
@@ -555,13 +556,13 @@ void calculateSplittingOfMesh() {
     
     for (int q = cut; q < dim; q++) {
         cut1 = q;
-        if (voxcount[q] >= average) {
+        if (voxcount[q] > average) {
             break;
         }
     }
     for (int r = cut; r > 0; r--) {
         cut2 = r;
-        if (voxcount[r] >= average) {
+        if (voxcount[r] > average) {
             break;
         }
     }
@@ -631,10 +632,10 @@ cubeMesh.vertices[I*3+2] = Z;
         DEF_CUBE_VERT(1, xMax,yCut,zMin);
         DEF_CUBE_VERT(2, xMax,yCut,zMax);
         DEF_CUBE_VERT(3, xMin,yCut,zMax);
-        DEF_CUBE_VERT(4, xMin,yMin,zMin);
-        DEF_CUBE_VERT(5, xMax,yMin,zMin);
-        DEF_CUBE_VERT(6, xMax,yMin,zMax);
-        DEF_CUBE_VERT(7, xMin,yMin,zMax);
+        DEF_CUBE_VERT(4, xMin,yMin-0.0001,zMin);
+        DEF_CUBE_VERT(5, xMax,yMin-0.0001,zMin);
+        DEF_CUBE_VERT(6, xMax,yMin-0.0001,zMax);
+        DEF_CUBE_VERT(7, xMin,yMin-0.0001,zMax);
         
 #undef DEF_CUBE_VERT
         
@@ -676,10 +677,10 @@ cubeMesh2.vertices[I*3+2] = Z;
         printf("cut point 2: %f", yCut2);
         
         
-        DEF_CUBE_VERT(0, xMin,yMax,zMin);
-        DEF_CUBE_VERT(1, xMax,yMax,zMin);
-        DEF_CUBE_VERT(2, xMax,yMax,zMax);
-        DEF_CUBE_VERT(3, xMin,yMax,zMax);
+        DEF_CUBE_VERT(0, xMin,yMax+0.0001,zMin);
+        DEF_CUBE_VERT(1, xMax,yMax+0.0001,zMin);
+        DEF_CUBE_VERT(2, xMax,yMax+0.0001,zMax);
+        DEF_CUBE_VERT(3, xMin,yMax+0.0001,zMax);
         DEF_CUBE_VERT(4, xMin,yCut2,zMin);
         DEF_CUBE_VERT(5, xMax,yCut2,zMin);
         DEF_CUBE_VERT(6, xMax,yCut2,zMax);
@@ -811,10 +812,10 @@ cubeMesh.vertices[I*3+2] = Z;
         DEF_CUBE_VERT(1, xMax,yCut,zMin);
         DEF_CUBE_VERT(2, xMax,yCut,zMax);
         DEF_CUBE_VERT(3, xMin,yCut,zMax);
-        DEF_CUBE_VERT(4, xMin,yMin,zMin);
-        DEF_CUBE_VERT(5, xMax,yMin,zMin);
-        DEF_CUBE_VERT(6, xMax,yMin,zMax);
-        DEF_CUBE_VERT(7, xMin,yMin,zMax);
+        DEF_CUBE_VERT(4, xMin,yMin-0.0001,zMin);
+        DEF_CUBE_VERT(5, xMax,yMin-0.0001,zMin);
+        DEF_CUBE_VERT(6, xMax,yMin-0.0001,zMax);
+        DEF_CUBE_VERT(7, xMin,yMin-0.0001,zMax);
         
 #undef DEF_CUBE_VERT
         
